@@ -19,7 +19,7 @@ function GeoMap(props) {
 
   useEffect(() => {
     if (!map.current) {
-      console.log("initialize geomap")
+      console.log('initialize geomap')
       robotGeometry.current = new Point(
         fromLonLat([props.longitude, props.latitude])
       )
@@ -92,7 +92,7 @@ async function createPeerConnection() {
 
 function connectSignaler(messageCallback, reconnectCallback) {
   console.log(`connect to socket`)
-  const socket = new WebSocket(`ws://localhost:8080/connect?id=${ID}`)
+  const socket = new WebSocket(`ws://${import.meta.env.VITE_WEBRTC_SIGNALER_URL}/connect?id=${ID}`)
   socket.addEventListener('open', () => {
     console.log('open websocket')
   })
@@ -125,6 +125,7 @@ function App() {
   const steeringFactorDelta = 0.002 * maxSteeringFactor.current
   const steeringFactor = useRef(150)
   const throttleFactor = useRef(100)
+  const lightSent = useRef(false)
   const peerId = useRef(null)
   const dataChannel = useRef(null)
   const signaler = useRef(null)
@@ -344,6 +345,19 @@ function App() {
         })
         //console.log(message)
         dataChannel.current.send(message)
+
+        if (gamepads[0].buttons[5].pressed) {
+          if (!lightSent.current) {
+            dataChannel.current.send(
+              JSON.stringify({
+                type: 'light',
+              })
+            )
+            lightSent.current = true
+          }
+        } else if (lightSent.current) {
+          lightSent.current = false
+        }
       }
     }, 1000 / 100)
   }, [])
