@@ -1,6 +1,8 @@
 // @ts-nocheck
 
 import { useEffect, useState, useRef } from 'react'
+import Form from 'react-bootstrap/Form'
+import Button from 'react-bootstrap/Button'
 import Feature from 'ol/Feature.js'
 import Map from 'ol/Map'
 import View from 'ol/View'
@@ -92,7 +94,9 @@ async function createPeerConnection() {
 
 function connectSignaler(messageCallback, reconnectCallback) {
   console.log(`connect to socket`)
-  const socket = new WebSocket(`${import.meta.env.VITE_WEBRTC_SIGNALER_URL}/connect?id=${ID}`)
+  const socket = new WebSocket(
+    `${import.meta.env.VITE_WEBRTC_SIGNALER_URL}/connect?id=${ID}`
+  )
   socket.addEventListener('open', () => {
     console.log('open websocket')
   })
@@ -126,7 +130,8 @@ function App() {
   const steeringFactor = useRef(150)
   const throttleFactor = useRef(100)
   const lightSent = useRef(false)
-  const peerId = useRef(null)
+  const [robotId, setRobotId] = useState('')
+  const [robotIdSet, setRobotIdSet] = useState(false)
   const dataChannel = useRef(null)
   const signaler = useRef(null)
   const peerConnection = useRef(null)
@@ -140,8 +145,8 @@ function App() {
   const [batteryVoltage, setBatteryVoltage] = useState(null)
   const [phoneState, setPhoneState] = useState(null)
 
-  async function sendOffer() {
-    console.log(`send offer to ${peerId.current}`)
+  async function sendOffer(peerId) {
+    console.log(`send offer to ${peerId}`)
     const response = await createPeerConnection()
     response.dataChannel.addEventListener('message', (e) => {
       console.log(`datachannel received message ${e.data}`)
@@ -179,7 +184,7 @@ function App() {
       ({ candidate }) => {
         if (candidate !== null) {
           const message = JSON.stringify({
-            to: peerId.current,
+            to: peerId,
             message: candidate,
           })
           console.log(`send candidate ${message}`)
@@ -204,7 +209,7 @@ function App() {
       if (response.peerConnection.iceConnectionState === 'failed') {
         console.log('set peer connection to null')
         peerConnection.current = null
-        if (signaler.current.readyState === 1 && peerId.current !== null) {
+        if (signaler.current.readyState === 1 && peerId !== null) {
           sendOffer()
         }
       }
@@ -213,7 +218,7 @@ function App() {
     dataChannel.current = response.dataChannel
     const offer = peerConnection.current.localDescription
     const message = JSON.stringify({
-      to: peerId.current,
+      to: peerId,
       message: {
         sdp: offer.sdp,
         type: offer.type,
@@ -226,19 +231,19 @@ function App() {
   async function handleMessage(message) {
     console.log(message)
     switch (message.type) {
-      case 'peers':
-        console.log(`received peers from signaler ${JSON.stringify(message)}`)
-        if (message.peerIds.length > 0) {
-          peerId.current = message.peerIds[0]
-          console.log(peerConnection.current)
-          if (!peerConnection.current) {
-            console.log('send offer')
-            sendOffer()
-          }
-        } else {
-          peerId.current = null
-        }
-        break
+      // case 'peers':
+      //   console.log(`received peers from signaler ${JSON.stringify(message)}`)
+      //   if (message.peerIds.length > 0) {
+      //     peerId.current = message.peerIds[0]
+      //     console.log(peerConnection.current)
+      //     if (!peerConnection.current) {
+      //       console.log('send offer')
+      //       sendOffer()
+      //     }
+      //   } else {
+      //     peerId.current = null
+      //   }
+      //   break
       case 'rtc':
         console.log(
           `received rtc message from signaler ${JSON.stringify(message)}`
@@ -364,48 +369,70 @@ function App() {
 
   return (
     <>
-      <video
-        ref={refVideo}
-        autoPlay
-        muted
-        draggable="false"
-        width="960"
-        height="720"
-      />
-      <p>
-        steering straight: {controlFactors.steeringStraight} throttle factor:{' '}
-        {controlFactors.throttle} steering factor: {controlFactors.steering}
-      </p>
-      {batteryVoltage && (
-        <p>
-          battery voltage cell a: {batteryVoltage.a}V b: {batteryVoltage.b}V
-        </p>
-      )}
-      {phoneState && (
+      {!robotIdSet ? (
         <>
-          <p>
-            phone battery level: {phoneState.battery}% network signal strength:{' '}
-            {phoneState.signal} bandwidth up: {phoneState.bandwidthUp}kbps
-            bandwidth down: {phoneState.bandwidthDown}kbps
-          </p>
-          <p>
-            longitude: {phoneState.location.longitude} latitude:{' '}
-            {phoneState.location.latitude} speed:{' '}
-            {phoneState.location.speed * 3.6}km/h
-          </p>
-
-          <GeoMap
-            longitude={phoneState?.location.longitude}
-            latitude={phoneState?.location?.latitude}
-            zoom={15}
-            style={{
-              position: 'absolute',
-              bottom: 0,
-              right: 0,
-              width: 300,
-              height: 300,
-            }}
+          <Form.Control
+            size="lg"
+            type="text"
+            placeholder="robot"
+            value={robotId}
+            onChange={(e) => setRobotId(e.target.value)}
           />
+          <Button variant="primary" onClick={() => {
+            console.log(robotId)
+            setRobotIdSet(true)
+            sendOffer(robotId)}}>
+            Connect
+          </Button>
+        </>
+      ) : (
+        <>
+          <video
+            ref={refVideo}
+            autoPlay
+            muted
+            draggable="false"
+            width="960"
+            height="720"
+          />
+          <p>
+            steering straight: {controlFactors.steeringStraight} throttle
+            factor: {controlFactors.throttle} steering factor:{' '}
+            {controlFactors.steering}
+          </p>
+          {batteryVoltage && (
+            <p>
+              battery voltage cell a: {batteryVoltage.a}V b: {batteryVoltage.b}V
+            </p>
+          )}
+          {phoneState && (
+            <>
+              <p>
+                phone battery level: {phoneState.battery}% network signal
+                strength: {phoneState.signal} bandwidth up:{' '}
+                {phoneState.bandwidthUp}kbps bandwidth down:{' '}
+                {phoneState.bandwidthDown}kbps
+              </p>
+              <p>
+                longitude: {phoneState.location.longitude} latitude:{' '}
+                {phoneState.location.latitude} speed:{' '}
+                {phoneState.location.speed * 3.6}km/h
+              </p>
+
+              <GeoMap
+                longitude={phoneState?.location.longitude}
+                latitude={phoneState?.location?.latitude}
+                zoom={15}
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  right: 0,
+                  width: 300,
+                  height: 300,
+                }}
+              />
+            </>
+          )}
         </>
       )}
     </>
