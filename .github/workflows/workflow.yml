@@ -3,7 +3,7 @@ name: Deploy static content to Pages
 
 env:
   VITE_WEBRTC_SIGNALER_URL: wss://signaling-qzgpzgyo2a-ez.a.run.app
-  BASE_VITE: /control/
+  BASE_VITE: /home/
 
 on:
   # Runs on pushes targeting the default branch
