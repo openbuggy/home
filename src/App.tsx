@@ -95,7 +95,7 @@ async function createPeerConnection() {
 function connectSignaler(messageCallback, reconnectCallback) {
   console.log(`connect to socket`)
   const socket = new WebSocket(
-    `${import.meta.env.VITE_WEBRTC_SIGNALER_URL}/connect?id=${ID}`
+    `${import.meta.env.VITE_SIGNALING_URL}/connect?id=${ID}`
   )
   socket.addEventListener('open', () => {
     console.log('open websocket')
