@@ -379,7 +379,6 @@ function App() {
             onChange={(e) => setRobotId(e.target.value)}
           />
           <Button variant="primary" onClick={() => {
-            console.log(robotId)
             setRobotIdSet(true)
             sendOffer(robotId)}}>
             Connect
