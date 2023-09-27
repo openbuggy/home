@@ -129,6 +129,7 @@ function App() {
   const steeringFactorDelta = 0.002 * maxSteeringFactor.current
   const steeringFactor = useRef(150)
   const throttleFactor = useRef(100)
+  const [focusDistance, setFocusDistance] = useState(0)
   const lightSent = useRef(false)
   const [robotId, setRobotId] = useState('')
   const [robotIdSet, setRobotIdSet] = useState(false)
@@ -363,7 +364,26 @@ function App() {
         } else if (lightSent.current) {
           lightSent.current = false
         }
+        if (gamepads[0].buttons[8].pressed || gamepads[0].buttons[9].pressed) {
+          setFocusDistance((prevDistance) => {
+            const nextDistance = Math.min(Math.max(prevDistance + (gamepads[0].buttons[8].pressed ? -0.01 : 0.01), 0), 10)
+            if (nextDistance === prevDistance) {
+              return prevDistance
+            }
+            const remainder = (nextDistance % 0.5) 
+            if (remainder <= 0.005 || remainder >= 0.495) {
+              console.log(`send focus distance ${nextDistance}`)
+              dataChannel.current.send(
+                JSON.stringify({
+                  type: 'focus',
+                  distance: nextDistance,
+                })
+              ) 
+            }
+            return nextDistance
+          })
       }
+  }
     }, 1000 / 100)
   }, [])
 
@@ -397,7 +417,7 @@ function App() {
           <p>
             steering straight: {controlFactors.steeringStraight} throttle
             factor: {controlFactors.throttle} steering factor:{' '}
-            {controlFactors.steering}
+            {controlFactors.steering} camera focus {focusDistance}
           </p>
           {batteryVoltage && (
             <p>
