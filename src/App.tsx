@@ -3,9 +3,9 @@
 import { useEffect, useState, useRef } from 'react'
 import Form from 'react-bootstrap/Form'
 import Button from 'react-bootstrap/Button'
-import Feature from 'ol/Feature.js'
 import Map from 'ol/Map'
 import View from 'ol/View'
+import Feature from 'ol/Feature.js'
 import TileLayer from 'ol/layer/Tile'
 import VectorLayer from 'ol/layer/Vector'
 import VectorSource from 'ol/source/Vector'
@@ -64,92 +64,59 @@ function GeoMap(props) {
     map.current.getView().setZoom(props.zoom)
   }, [props.zoom])
 
-  return (
-    <>
-      <div style={props.style} ref={element} className="map-container"></div>
-    </>
-  )
-}
-
-const ID = 'id' + Math.random().toString(16).slice(2)
-
-async function createPeerConnection() {
-  console.log('create peer connection')
-  const iceServers = [
-    {
-      urls: 'stun:stun.l.google.com:19302',
-    },
-  ]
-  const peerConnection = new RTCPeerConnection({
-    sdpSemantics: 'unified-plan',
-    iceServers: iceServers,
-  })
-  const dataChannel = peerConnection.createDataChannel('datachannel')
-  const offer = await peerConnection.createOffer({
-    offerToReceiveVideo: true,
-  })
-  await peerConnection.setLocalDescription(offer)
-  return { peerConnection: peerConnection, dataChannel: dataChannel }
-}
-
-function connectSignaler(messageCallback, reconnectCallback) {
-  console.log(`connect to socket`)
-  const socket = new WebSocket(
-    `${import.meta.env.VITE_SIGNALING_URL}/connect?id=${ID}`
-  )
-  socket.addEventListener('open', () => {
-    console.log('open websocket')
-  })
-  socket.addEventListener('message', (event) => {
-    messageCallback(JSON.parse(event.data))
-  })
-  socket.addEventListener('error', (e) => {
-    console.log('error websocket', e)
-  })
-  socket.addEventListener('close', () => {
-    console.log('close websocket')
-    setTimeout(reconnectCallback, 1000)
-  })
-  return socket
+  return <div style={props.style} ref={element} className="map-container" />
 }
 
 function App() {
-  const maxThrottleFactor = 500
-  const throttleFactorDelta = 0.002 * maxThrottleFactor
-  const minSteering = 0
-  const maxSteering = 1000
-  const steeringStraight = useRef(500)
-  const steeringStraightDelta = 0.1
-  const maxSteeringFactor = useRef(
-    Math.min(
-      steeringStraight.current - minSteering,
-      maxSteering - steeringStraight.current
-    )
-  )
-  const steeringFactorDelta = 0.002 * maxSteeringFactor.current
-  const steeringFactor = useRef(150)
-  const throttleFactor = useRef(100)
-  const [focusDistance, setFocusDistance] = useState(0)
-  const lightSent = useRef(false)
-  const [robotId, setRobotId] = useState('')
+  const userId = 'user'
+  const maxThrottleSend = 500
+  const maxSteeringSend = 500
+  const maxThrottleDelta = 0.002
+  const maxSteeringDelta = 0.002
+  const steeringStraightDelta = 0.0002
+
+  const [robotId, setRobotId] = useState('buggy')
   const [robotIdSet, setRobotIdSet] = useState(false)
-  const dataChannel = useRef(null)
+  const [maxThrottle, setMaxThrottle] = useState(0.2)
+  const [maxSteering, setMaxSteering] = useState(0.2)
+  const [steeringStraight, setSteeringStraight] = useState(0.03)
+  const [focusDistance, setFocusDistance] = useState(0)
+  const [batteryVoltage, setBatteryVoltage] = useState(null)
+  const [location, setLocation] = useState(null)
+  const [phoneState, setPhoneState] = useState(null)
+
+  const controlRef = useRef({
+    maxThrottle: maxThrottle,
+    maxSteering: maxSteering,
+    steeringStraight: steeringStraight,
+  })
+  const maxMaxSteering = useRef(1 - Math.abs(steeringStraight))
+  const lightSent = useRef(false)
   const signaler = useRef(null)
   const peerConnection = useRef(null)
-  const refVideo = useRef<HTMLVideoElement>(null)
+  const dataChannel = useRef(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
   const initialized = useRef(false)
-  const [controlFactors, setControlFactors] = useState({
-    throttle: throttleFactor.current,
-    steering: steeringFactor.current,
-    steeringStraight: steeringStraight.current,
-  })
-  const [batteryVoltage, setBatteryVoltage] = useState(null)
-  const [phoneState, setPhoneState] = useState(null)
 
   async function sendOffer(peerId) {
     console.log(`send offer to ${peerId}`)
-    const response = await createPeerConnection()
-    response.dataChannel.addEventListener('message', (e) => {
+    console.log('create peer connection')
+    peerConnection.current = new RTCPeerConnection({
+      sdpSemantics: 'unified-plan',
+      iceServers: [
+        {
+          urls: 'stun:stun.l.google.com:19302',
+        },
+      ],
+    })
+    dataChannel.current =
+      peerConnection.current.createDataChannel('datachannel')
+    await peerConnection.current.setLocalDescription(
+      await peerConnection.current.createOffer({
+        offerToReceiveVideo: true,
+      })
+    )
+    dataChannel.current.addEventListener('message', (e) => {
       console.log(`datachannel received message ${e.data}`)
       const message = JSON.parse(e.data)
       switch (message.type) {
@@ -162,13 +129,22 @@ function App() {
           setBatteryVoltage(batteryVoltage)
           break
         }
+        case 'location': {
+          const location = {
+            latitude: message.latitude,
+            longitude: message.longitude,
+            speed: message.speed,
+          }
+          console.log(`set location ${JSON.stringify(location)}`)
+          setLocation(location)
+          break
+        }
         case 'phoneState': {
           const phoneState = {
             battery: message.battery,
             signal: message.signal,
             bandwidthUp: message.bandwidthUp,
             bandwidthDown: message.bandwidthDown,
-            location: message.location,
           }
           console.log(`set phoneState ${JSON.stringify(phoneState)}`)
           setPhoneState(phoneState)
@@ -176,47 +152,32 @@ function App() {
         }
       }
     })
-    response.peerConnection.addEventListener('track', ({ track }) => {
+    peerConnection.current.addEventListener('track', ({ track }) => {
       console.log(`received media track`)
-      refVideo.current.srcObject = new MediaStream([track])
+      videoRef.current.srcObject = new MediaStream([track])
     })
-    response.peerConnection.addEventListener(
-      'icecandidate',
-      ({ candidate }) => {
-        if (candidate !== null) {
-          const message = JSON.stringify({
-            to: peerId,
-            message: candidate,
-          })
-          console.log(`send candidate ${message}`)
-          signaler.current.send(message)
-        }
+    peerConnection.current.addEventListener('icecandidate', ({ candidate }) => {
+      if (candidate !== null) {
+        const message = JSON.stringify({
+          to: peerId,
+          message: candidate,
+        })
+        console.log(`send candidate ${message}`)
+        signaler.current.send(message)
       }
-    )
-    response.peerConnection.addEventListener('iceconnectionstatechange', () => {
+    })
+    peerConnection.current.addEventListener('iceconnectionstatechange', () => {
       console.log(
-        `iceconnectionstate changed to ${response.peerConnection.iceConnectionState}`
+        `iceconnectionstate changed to ${peerConnection.current.iceConnectionState}`
       )
-      // if (["failed", "closed"].includes(response.peerConnection.iceConnectionState)) {
-      //   if (response.peerConnection.iceConnectionState !== "closed") {
-      //     console.log("close old peerConnection")
-      //     response.peerConnection.close()
-      //   }
-      //   if (peerId.current === peerId) {
-      //     console.log(`resend offer to ${peerId.current}`)
-      //     sendOffer(peerId.current)
-      //   }
-      // }
-      if (response.peerConnection.iceConnectionState === 'failed') {
+      if (peerConnection.current.iceConnectionState === 'failed') {
         console.log('set peer connection to null')
         peerConnection.current = null
-        if (signaler.current.readyState === 1 && peerId !== null) {
+        if (signaler.current.readyState === 1) {
           sendOffer()
         }
       }
     })
-    peerConnection.current = response.peerConnection
-    dataChannel.current = response.dataChannel
     const offer = peerConnection.current.localDescription
     const message = JSON.stringify({
       to: peerId,
@@ -229,120 +190,108 @@ function App() {
     signaler.current.send(message)
   }
 
-  async function handleMessage(message) {
-    console.log(message)
-    switch (message.type) {
-      // case 'peers':
-      //   console.log(`received peers from signaler ${JSON.stringify(message)}`)
-      //   if (message.peerIds.length > 0) {
-      //     peerId.current = message.peerIds[0]
-      //     console.log(peerConnection.current)
-      //     if (!peerConnection.current) {
-      //       console.log('send offer')
-      //       sendOffer()
-      //     }
-      //   } else {
-      //     peerId.current = null
-      //   }
-      //   break
-      case 'rtc':
-        console.log(
-          `received rtc message from signaler ${JSON.stringify(message)}`
-        )
-        if (message.message.candidate) {
-          console.log('add ice candidate')
-          await peerConnection.current.addIceCandidate(message.message)
-        } else if (message.message.sdp) {
-          console.log('set answer')
-          await peerConnection.current.setRemoteDescription(message.message)
-        } else if (message.message == 'failure') {
-          console.log('resend offer because peer failure')
-          sendOffer()
-        }
-    }
-  }
-
   useEffect(() => {
     if (initialized.current) return
     initialized.current = true
+
     function setSignaler() {
-      signaler.current = connectSignaler(handleMessage, setSignaler)
+      console.log(`connect to socket`)
+      signaler.current = new WebSocket(
+        `${import.meta.env.VITE_SIGNALING_URL}/connect?id=${userId}`
+      )
+      signaler.current.addEventListener('open', () => {
+        console.log('open websocket')
+      })
+      signaler.current.addEventListener('message', (event) => {
+        const message = JSON.parse(event.data)
+        console.log(message)
+        switch (message.type) {
+          case 'rtc':
+            console.log(
+              `received rtc message from signaler ${JSON.stringify(message)}`
+            )
+            if (message.message.candidate) {
+              console.log('add ice candidate')
+              peerConnection.current.addIceCandidate(message.message)
+            } else if (message.message.sdp) {
+              console.log('set answer')
+              peerConnection.current.setRemoteDescription(message.message)
+            } else if (message.message == 'failure') {
+              console.log('resend offer because peer failure')
+              sendOffer()
+            }
+        }
+      })
+      signaler.current.addEventListener('error', (e) => {
+        console.log('error websocket', e)
+      })
+      signaler.current.addEventListener('close', () => {
+        console.log('close websocket')
+        setTimeout(setSignaler(), 1000)
+      })
     }
     setSignaler()
+
     console.log('set interval for gamepad polling')
     setInterval(() => {
       const gamepads = navigator.getGamepads()
       if (gamepads.length && gamepads[0]) {
-        let factorsUpdated = false
-        if (gamepads[0].buttons[3].pressed) {
-          throttleFactor.current = Math.min(
-            throttleFactor.current + throttleFactorDelta,
-            maxThrottleFactor
+        if (gamepads[0].buttons[5].pressed) {
+          setMaxThrottle(
+            Math.min(controlRef.current.maxThrottle + maxThrottleDelta, 1)
           )
-          factorsUpdated = true
+        }
+        if (gamepads[0].buttons[4].pressed) {
+          setMaxThrottle(
+            Math.max(controlRef.current.maxThrottle - maxThrottleDelta, 0)
+          )
+        }
+        if (gamepads[0].buttons[3].pressed) {
+          setMaxSteering(
+            Math.min(
+              controlRef.current.maxSteering + maxSteeringDelta,
+              maxMaxSteering.current
+            )
+          )
         }
         if (gamepads[0].buttons[0].pressed) {
-          throttleFactor.current = Math.max(
-            throttleFactor.current - throttleFactorDelta,
-            0
+          setMaxSteering(
+            Math.max(controlRef.current.maxSteering - maxSteeringDelta, 0)
           )
-          factorsUpdated = true
         }
-        if (gamepads[0].buttons[1].pressed) {
-          steeringFactor.current = Math.min(
-            steeringFactor.current + steeringFactorDelta,
-            maxSteeringFactor.current
+        if (
+          gamepads[0].buttons[14].pressed ||
+          gamepads[0].buttons[15].pressed
+        ) {
+          const steeringStraight = Math.max(
+            Math.min(
+              controlRef.current.steeringStraight +
+                (gamepads[0].buttons[14].pressed ? -1 : 1) *
+                  steeringStraightDelta,
+              1
+            ),
+            -1
           )
-          factorsUpdated = true
+          setSteeringStraight(steeringStraight)
+          maxMaxSteering.current = 1 - Math.abs(steeringStraight)
+          setMaxSteering(
+            Math.min(controlRef.current.maxSteering, maxMaxSteering.current)
+          )
         }
-        if (gamepads[0].buttons[2].pressed) {
-          steeringFactor.current = Math.max(
-            steeringFactor.current - steeringFactorDelta,
-            0
-          )
-          factorsUpdated = true
-        }
-        if (gamepads[0].buttons[14].pressed) {
-          steeringStraight.current -= steeringStraightDelta
-          maxSteeringFactor.current = Math.min(
-            steeringStraight.current - minSteering,
-            maxSteering - steeringStraight.current
-          )
-          steeringFactor.current = Math.min(
-            steeringFactor.current,
-            maxSteeringFactor.current
-          )
-          factorsUpdated = true
-        }
-        if (gamepads[0].buttons[15].pressed) {
-          steeringStraight.current += steeringStraightDelta
-          maxSteeringFactor.current = Math.min(
-            steeringStraight.current - minSteering,
-            maxSteering - steeringStraight.current
-          )
-          steeringFactor.current = Math.min(
-            steeringFactor.current,
-            maxSteeringFactor.current
-          )
-          factorsUpdated = true
-        }
-        if (factorsUpdated) {
-          setControlFactors({
-            throttle: Math.floor(throttleFactor.current),
-            steering: Math.floor(steeringFactor.current),
-            steeringStraight: Math.floor(steeringStraight.current),
-          })
-        }
-        const throttle = Math.floor(
-          500 +
-            (gamepads[0].buttons[6].value !== 0
-              ? -gamepads[0].buttons[6].value * maxThrottleFactor
-              : gamepads[0].buttons[7].value * throttleFactor.current)
-        )
 
+        const throttle =
+          maxThrottleSend +
+          Math.floor(
+            (gamepads[0].buttons[6].value !== 0
+              ? -gamepads[0].buttons[6].value
+              : gamepads[0].buttons[7].value * controlRef.current.maxThrottle) *
+              maxThrottleSend
+          )
         const steering = Math.floor(
-          steeringStraight.current +
-            gamepads[0].axes[0] * steeringFactor.current
+          (1 + controlRef.current.steeringStraight) * maxSteeringSend +
+            gamepads[0].axes[0] *
+              controlRef.current.maxSteering *
+              maxSteeringSend
         )
         const message = JSON.stringify({
           type: 'control',
@@ -352,7 +301,7 @@ function App() {
         //console.log(message)
         dataChannel.current.send(message)
 
-        if (gamepads[0].buttons[5].pressed) {
+        if (gamepads[0].buttons[9].pressed) {
           if (!lightSent.current) {
             dataChannel.current.send(
               JSON.stringify({
@@ -364,97 +313,137 @@ function App() {
         } else if (lightSent.current) {
           lightSent.current = false
         }
-        if (gamepads[0].buttons[8].pressed || gamepads[0].buttons[9].pressed) {
-          setFocusDistance((prevDistance) => {
-            const nextDistance = Math.min(Math.max(prevDistance + (gamepads[0].buttons[8].pressed ? -0.01 : 0.01), 0), 10)
-            if (nextDistance === prevDistance) {
-              return prevDistance
-            }
-            const remainder = (nextDistance % 0.5) 
-            if (remainder <= 0.005 || remainder >= 0.495) {
-              console.log(`send focus distance ${nextDistance}`)
-              dataChannel.current.send(
-                JSON.stringify({
-                  type: 'focus',
-                  distance: nextDistance,
-                })
-              ) 
-            }
-            return nextDistance
-          })
       }
-  }
-    }, 1000 / 100)
+    }, 1000 / 200)
   }, [])
 
+  useEffect(() => {
+    controlRef.current.maxThrottle = maxThrottle
+  }, [maxThrottle])
+
+  useEffect(() => {
+    controlRef.current.maxSteering = maxSteering
+  }, [maxSteering])
+
+  useEffect(() => {
+    controlRef.current.steeringStraight = steeringStraight
+  }, [steeringStraight])
+
   return (
-    <>
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        height: '100vh',
+        width: '100vw',
+        backgroundColor: 'rgb(20,20,20)',
+      }}
+    >
       {!robotIdSet ? (
-        <>
+        <div style={{position: "absolute", top:"50%", left:"50%",  transform: "translate(-50%, -50%)"}}>
           <Form.Control
+            style={{marginBottom: "10px"}}
             size="lg"
             type="text"
-            placeholder="robot"
             value={robotId}
             onChange={(e) => setRobotId(e.target.value)}
           />
-          <Button variant="primary" onClick={() => {
-            setRobotIdSet(true)
-            sendOffer(robotId)}}>
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={() => {
+              setRobotIdSet(true)
+              sendOffer(robotId)
+            }}
+          >
             Connect
           </Button>
-        </>
+        </div>
       ) : (
         <>
           <video
-            ref={refVideo}
+            ref={videoRef}
             autoPlay
             muted
             draggable="false"
-            width="960"
-            height="720"
+            height="240"
+            width="320"
+            style={{ height: '100%', width: '100%' }}
           />
-          <p>
-            steering straight: {controlFactors.steeringStraight} throttle
-            factor: {controlFactors.throttle} steering factor:{' '}
-            {controlFactors.steering} camera focus {focusDistance}
-          </p>
-          {batteryVoltage && (
-            <p>
-              battery voltage cell a: {batteryVoltage.a}V b: {batteryVoltage.b}V
-            </p>
+          {location && (
+            <GeoMap
+              longitude={location.longitude}
+              latitude={location.latitude}
+              zoom={15}
+              style={{
+                position: 'absolute',
+                bottom: '15px',
+                left: '15px',
+                width: '250px',
+                height: '250px',
+                borderRadius: '24px',
+                overflow: 'hidden',
+              }}
+            />
           )}
-          {phoneState && (
-            <>
-              <p>
-                phone battery level: {phoneState.battery}% network signal
-                strength: {phoneState.signal} bandwidth up:{' '}
-                {phoneState.bandwidthUp}kbps bandwidth down:{' '}
-                {phoneState.bandwidthDown}kbps
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '15px',
+              right: '15px',
+              backgroundColor: 'rgba(255,255,255,0.05)',
+              borderRadius: '24px',
+              padding: '20px',
+              color: 'white',
+            }}
+          >
+            {location && (
+              <p style={{ fontSize: '40px' }}>
+                {location.speed * 3.6} km/h
               </p>
+            )}
+            <div style={{ fontSize: '20px' }}>
+              <p>throttle max: {Math.floor(maxThrottle * 100)} %</p>
+              <p>steering max: {Math.floor(maxSteering * 100)} %</p>
+              <p>steering straight: {(steeringStraight * 100).toFixed(1)} %</p>
+            </div>
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              top: '15px',
+              right: '15px',
+              backgroundColor: 'rgba(255,255,255,0.05)',
+              borderRadius: '24px',
+              padding: '20px',
+              color: 'white',
+              fontSize: '16px',
+            }}
+          >
+            {batteryVoltage && (
               <p>
-                longitude: {phoneState.location.longitude} latitude:{' '}
-                {phoneState.location.latitude} speed:{' '}
-                {phoneState.location.speed * 3.6}km/h
+                battery a: {batteryVoltage.a} V b: {batteryVoltage.b} V
               </p>
-
-              <GeoMap
-                longitude={phoneState?.location.longitude}
-                latitude={phoneState?.location?.latitude}
-                zoom={15}
-                style={{
-                  position: 'absolute',
-                  bottom: 0,
-                  right: 0,
-                  width: 300,
-                  height: 300,
-                }}
-              />
-            </>
-          )}
+            )}
+            {phoneState && (
+              <>
+                <p>phone battery level: {phoneState.battery} %</p>
+                <p>network signal strength: {phoneState.signal}</p>
+                <p>
+                  bandwidth up: {Math.floor(phoneState.bandwidthUp / 1000)} mbps
+                </p>
+                <p>
+                  bandwidth down: {Math.floor(phoneState.bandwidthDown / 1000)}{' '}
+                  mbps
+                </p>
+              </>
+            )}
+            <p>camera focus: {focusDistance}</p>
+          </div>
         </>
       )}
-    </>
+    </div>
   )
 }
 
