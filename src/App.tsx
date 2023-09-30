@@ -400,7 +400,7 @@ function App() {
           >
             {location && (
               <p style={{ fontSize: '40px' }}>
-                {location.speed * 3.6} km/h
+                {Math.floor(location.speed * 3.6)} km/h
               </p>
             )}
             <div style={{ fontSize: '20px' }}>
