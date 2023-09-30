@@ -314,7 +314,7 @@ function App() {
           lightSent.current = false
         }
       }
-    }, 1000 / 200)
+    }, 1000 / 100)
   }, [])
 
   useEffect(() => {
